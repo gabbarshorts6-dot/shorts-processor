@@ -1,67 +1,75 @@
 from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import yt_dlp
-import os
 import subprocess
+import os
 import uuid
 
 app = FastAPI()
 
-BASE = "/app/downloads"
-os.makedirs(BASE, exist_ok=True)
-
-COOKIE_FILE = "/etc/secrets/youtube_cookies.txt"
+os.makedirs("downloads", exist_ok=True)
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    with open("/app/index.html", "r", encoding="utf-8") as f:
+    with open("index.html", "r", encoding="utf-8") as f:
         return f.read()
 
 @app.post("/process")
-async def process_video(video_url: str = Form(...)):
+def process_video(url: str = Form(...)):
+    video_id = str(uuid.uuid4())
+    input_file = f"downloads/{video_id}.mp4"
+    output_file = f"downloads/{video_id}_short.mp4"
+
     try:
-        job_id = str(uuid.uuid4())
-        folder = os.path.join(BASE, job_id)
-        os.makedirs(folder, exist_ok=True)
-
-        source = os.path.join(folder, "source.mp4")
-        output = os.path.join(folder, "short.mp4")
-
-        opts = {
-            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-            "outtmpl": source,
-            "merge_output_format": "mp4",
+        options = {
+            "format": "best[height<=720]/best",
+            "outtmpl": input_file,
+            "noplaylist": True,
             "quiet": True,
         }
 
-        if os.path.isfile(COOKIE_FILE):
-            opts["cookiefile"] = COOKIE_FILE
+        with yt_dlp.YoutubeDL(options) as ydl:
+            ydl.download([url])
 
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([video_url])
+        if not os.path.exists(input_file):
+            return {"error": "Video download failed."}
 
-        subprocess.run([
-            "ffmpeg", "-y", "-i", source,
-            "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
-            "-c:v", "libx264", "-preset", "fast",
-            "-crf", "23", "-c:a", "aac",
-            "-b:a", "128k", output
-        ], check=True)
+        command = [
+            "ffmpeg", "-y",
+            "-i", input_file,
+            "-t", "60",
+            "-vf",
+            "crop=min(iw\\,ih*9/16):ih:(iw-min(iw\\,ih*9/16))/2:0,scale=720:1280",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-c:a", "aac",
+            output_file
+        ]
 
-        return JSONResponse({
-            "status": "success",
-            "message": "Short ready!",
-            "download_url": f"/download/{job_id}"
-        })
+        subprocess.run(command, check=True, capture_output=True)
+
+        return {
+            "success": True,
+            "download_url": f"/download/{video_id}"
+        }
 
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return {"error": str(e)}
 
-@app.get("/download/{job_id}")
-def download_short(job_id: str):
-    path = os.path.join(BASE, job_id, "short.mp4")
+    finally:
+        if os.path.exists(input_file):
+            os.remove(input_file)
 
-    if not os.path.isfile(path):
-        return JSONResponse({"error": "File not found"}, status_code=404)
+@app.get("/download/{video_id}")
+def download_video(video_id: str):
+    path = f"downloads/{video_id}_short.mp4"
 
-    return FileResponse(path, media_type="video/mp4", filename="short.mp4")
+    if not os.path.exists(path):
+        return {"error": "File not found"}
+
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        filename="short.mp4"
+    )
