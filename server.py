@@ -1,5 +1,6 @@
+
 from fastapi import FastAPI, Form
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 import yt_dlp
 import os
 import subprocess
@@ -7,23 +8,27 @@ import uuid
 
 app = FastAPI()
 
-@app.get("/")
+BASE = "/app/downloads"
+os.makedirs(BASE, exist_ok=True)
+
+@app.get("/", response_class=HTMLResponse)
 def home():
-    return {"status": "Shorts processor running"}
+    with open("/app/index.html", "r", encoding="utf-8") as f:
+        return f.read()
 
 @app.post("/process")
 async def process_video(video_url: str = Form(...)):
     try:
         job_id = str(uuid.uuid4())
-        folder = "/app/downloads"
+        folder = os.path.join(BASE, job_id)
         os.makedirs(folder, exist_ok=True)
 
-        input_file = f"{folder}/{job_id}.mp4"
-        output_file = f"{folder}/{job_id}_short.mp4"
+        source = os.path.join(folder, "source.mp4")
+        output = os.path.join(folder, "short.mp4")
 
         opts = {
-            "format": "best[height<=720]/best",
-            "outtmpl": input_file,
+            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+            "outtmpl": source,
             "merge_output_format": "mp4",
             "quiet": True
         }
@@ -32,25 +37,31 @@ async def process_video(video_url: str = Form(...)):
             ydl.download([video_url])
 
         subprocess.run([
-            "ffmpeg", "-y",
-            "-i", input_file,
-            "-t", "60",
-            "-vf", "crop=min(iw\\,ih*9/16):min(ih\\,iw*16/9):(iw-min(iw\\,ih*9/16))/2:(ih-min(ih\\,iw*16/9))/2,scale=720:1280",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-c:a", "aac",
-            "-b:a", "128k",
-            output_file
+            "ffmpeg", "-y", "-i", source,
+            "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
+            "-c:v", "libx264", "-preset", "fast",
+            "-crf", "23", "-c:a", "aac",
+            "-b:a", "128k", output
         ], check=True)
 
-        return FileResponse(
-            output_file,
-            media_type="video/mp4",
-            filename="short.mp4"
-        )
+        return JSONResponse({
+            "status": "success",
+            "message": "Short ready!",
+            "download_url": f"/download/{job_id}"
+        })
 
     except Exception as e:
-        return JSONResponse(
-            {"error": str(e)},
-            status_code=500
-        )
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/download/{job_id}")
+def download_short(job_id: str):
+    path = os.path.join(BASE, job_id, "short.mp4")
+    if not os.path.isfile(path):
+        return JSONResponse({"error": "File not found"}, status_code=404)
+
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        filename="short.mp4"
+    )
+    
