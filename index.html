@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shorts Processor</title>
+<style>
+body{margin:0;background:#10111b;color:white;font-family:Arial,sans-serif;padding:20px}
+.box{max-width:500px;margin:60px auto;background:#1b1d2b;padding:25px;border-radius:18px}
+h1{color:#a78bfa;text-align:center}
+p{text-align:center;color:#aaa}
+input,button{width:100%;box-sizing:border-box;padding:15px;margin-top:15px;border-radius:10px;border:none;font-size:16px}
+input{background:#292b3b;color:white}
+button{background:#7c3aed;color:white;font-weight:bold}
+#result{margin-top:20px;word-break:break-word}
+</style>
+</head>
+<body>
+<div class="box">
+<h1>🎬 Shorts Processor</h1>
+<p>Paste your YouTube video link below</p>
+<input id="url" placeholder="Paste YouTube video link">
+<button onclick="processVideo()">🚀 Process Video</button>
+<div id="result"></div>
+</div>
+<script>
+async function processVideo(){
+const url=document.getElementById("url").value.trim();
+const result=document.getElementById("result");
+if(!url){
+result.innerHTML="Please paste a video link.";
+return;
+}
+result.innerHTML="⏳ Processing request...";
+try{
+const res=await fetch("/process",{
+method:"POST",
+headers:{"Content-Type":"application/x-www-form-urlencoded"},
+body:"video_url="+encodeURIComponent(url)
+});
+const data=await res.json();
+if(res.ok){
+result.innerHTML="✅ "+(data.message||"Request received")+"<br><br>Video: "+(data.title||"Unknown");
+}else{
+result.innerHTML="❌ "+(data.error||"Something went wrong");
+}
+}catch(e){
+result.innerHTML="❌ Connection error. Please try again.";
+}
+}
+</script>
+</body>
+</html>
