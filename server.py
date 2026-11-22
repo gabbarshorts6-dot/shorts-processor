@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 import yt_dlp
@@ -10,6 +9,8 @@ app = FastAPI()
 
 BASE = "/app/downloads"
 os.makedirs(BASE, exist_ok=True)
+
+COOKIE_FILE = "/etc/secrets/youtube_cookies.txt"
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -30,8 +31,11 @@ async def process_video(video_url: str = Form(...)):
             "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
             "outtmpl": source,
             "merge_output_format": "mp4",
-            "quiet": True
+            "quiet": True,
         }
+
+        if os.path.isfile(COOKIE_FILE):
+            opts["cookiefile"] = COOKIE_FILE
 
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([video_url])
@@ -56,12 +60,8 @@ async def process_video(video_url: str = Form(...)):
 @app.get("/download/{job_id}")
 def download_short(job_id: str):
     path = os.path.join(BASE, job_id, "short.mp4")
+
     if not os.path.isfile(path):
         return JSONResponse({"error": "File not found"}, status_code=404)
 
-    return FileResponse(
-        path,
-        media_type="video/mp4",
-        filename="short.mp4"
-    )
-    
+    return FileResponse(path, media_type="video/mp4", filename="short.mp4")
