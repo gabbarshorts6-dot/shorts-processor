@@ -1,7 +1,6 @@
-from fastapi import FastAPI, Form
+
+from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-import yt_dlp
 import subprocess
 import os
 import uuid
@@ -16,34 +15,29 @@ def home():
         return f.read()
 
 @app.post("/process")
-def process_video(url: str = Form(...)):
+async def process_video(file: UploadFile = File(...)):
     video_id = str(uuid.uuid4())
-    input_file = f"downloads/{video_id}.mp4"
+    input_file = f"downloads/{video_id}_input"
     output_file = f"downloads/{video_id}_short.mp4"
 
     try:
-        options = {
-            "format": "best[height<=720]/best",
-            "outtmpl": input_file,
-            "noplaylist": True,
-            "quiet": True,
-        }
-
-        with yt_dlp.YoutubeDL(options) as ydl:
-            ydl.download([url])
-
-        if not os.path.exists(input_file):
-            return {"error": "Video download failed."}
+        with open(input_file, "wb") as buffer:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                buffer.write(chunk)
 
         command = [
             "ffmpeg", "-y",
             "-i", input_file,
             "-t", "60",
-            "-vf",
-            "crop=min(iw\\,ih*9/16):ih:(iw-min(iw\\,ih*9/16))/2:0,scale=720:1280",
+            "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
             "-c:v", "libx264",
             "-preset", "fast",
+            "-crf", "23",
             "-c:a", "aac",
+            "-movflags", "+faststart",
             output_file
         ]
 
@@ -73,3 +67,4 @@ def download_video(video_id: str):
         media_type="video/mp4",
         filename="short.mp4"
     )
+    
